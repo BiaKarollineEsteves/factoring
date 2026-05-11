@@ -136,11 +136,11 @@ def tela_login():
             )
         st.markdown(
             f'<div style="background:#f4f7fc;border:1px solid #dde3ef;border-top:none;border-radius:0 0 12px 12px;padding:24px 24px 28px;">'
-            f'<p style="text-align:center;color:#666;font-size:13px;margin:0 0 20px;">Negociação com Fornecedores</p>',
+            f'<p style="text-align:center;color:#666;font-size:20px;margin:0 0 20px;">Negociação com Fornecedores</p>',
             unsafe_allow_html=True
         )
         with st.form("login_form"):
-            usuario = st.selectbox("Usuário", ["Ana Lima", "Alexandre Vieira", "Beatriz Esteves", "Claudia Passos"])
+            usuario = st.selectbox("Usuário", ["Alexandre Vieira", "Beatriz Esteves", "Claudia Passos"])
             senha = st.text_input("Senha", type="password", placeholder="Digite sua senha")
             entrar = st.form_submit_button("Entrar", type="primary", use_container_width=True)
         st.markdown('</div>', unsafe_allow_html=True)
