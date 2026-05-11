@@ -16,20 +16,23 @@ def get_client() -> Client:
 # ── CRUD ──────────────────────────────────────────────────────────────────────
 
 def load_negs() -> list:
-    """Carrega todas as negociações do Supabase."""
-    try:
-        db = get_client()
-        res = db.table("negociacoes").select("*").order("criado_em", desc=True).execute()
-        negs = []
-        for row in res.data:
-            # notas e timeline são JSON strings no banco
-            row["notas"] = json.loads(row["notas"]) if isinstance(row["notas"], str) else row["notas"]
-            row["timeline"] = json.loads(row["timeline"]) if isinstance(row["timeline"], str) else row["timeline"]
-            negs.append(row)
-        return negs
-    except Exception as e:
-        st.error(f"Erro ao carregar dados: {e}")
-        return []
+    """Carrega todas as negociações com retry automático."""
+    import time
+    for tentativa in range(3):
+        try:
+            db = get_client()
+            res = db.table("negociacoes").select("*").order("criado_em", desc=True).execute()
+            negs = []
+            for row in res.data:
+                row["notas"] = json.loads(row["notas"]) if isinstance(row["notas"], str) else row["notas"]
+                row["timeline"] = json.loads(row["timeline"]) if isinstance(row["timeline"], str) else row["timeline"]
+                negs.append(row)
+            return negs
+        except Exception:
+            if tentativa < 2:
+                time.sleep(0.5)
+            else:
+                return []
 
 
 def save_neg(neg: dict):
@@ -84,13 +87,18 @@ def novo_id() -> str:
 # ── Fornecedores ──────────────────────────────────────────────────────────────
 
 def load_fornecedores() -> list:
-    try:
-        db = get_client()
-        res = db.table("fornecedores").select("*").order("nome").execute()
-        return res.data
-    except Exception as e:
-        st.error(f"Erro ao carregar fornecedores: {e}")
-        return []
+    """Carrega fornecedores com retry automático."""
+    import time
+    for tentativa in range(3):
+        try:
+            db = get_client()
+            res = db.table("fornecedores").select("*").order("nome").execute()
+            return res.data
+        except Exception:
+            if tentativa < 2:
+                time.sleep(0.5)
+            else:
+                return []
 
 def save_fornecedor(nome: str, cnpj: str, contato: str = "", obs: str = ""):
     db = get_client()
