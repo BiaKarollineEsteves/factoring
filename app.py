@@ -136,11 +136,11 @@ def tela_login():
             )
         st.markdown(
             f'<div style="background:#f4f7fc;border:1px solid #dde3ef;border-top:none;border-radius:0 0 12px 12px;padding:24px 24px 28px;">'
-            f'<p style="text-align:center;color:#666;font-size:20px;margin:0 0 20px;">Negociação com Fornecedores</p>',
+            f'<p style="text-align:center;color:#666;font-size:13px;margin:0 0 20px;">Negociação com Fornecedores</p>',
             unsafe_allow_html=True
         )
         with st.form("login_form"):
-            usuario = st.selectbox("Usuário", ["Alexandre Vieira", "Beatriz Esteves", "Claudia Passos"])
+            usuario = st.selectbox("Usuário", ["Ana Lima", "Alexandre Vieira", "Beatriz Esteves", "Claudia Passos"])
             senha = st.text_input("Senha", type="password", placeholder="Digite sua senha")
             entrar = st.form_submit_button("Entrar", type="primary", use_container_width=True)
         st.markdown('</div>', unsafe_allow_html=True)
@@ -239,7 +239,7 @@ if pagina == "Dashboard":
             "Valor total": brl(n["valor_total"]),
             "Taxa": f"{float(n['taxa']):.2f}%".replace(".",","),
             "Ganho": brl(n["ganho"]),
-            "Data": datetime.fromisoformat(n["criado_em"]).strftime("%d/%m/%Y"),
+            "Data": datetime.fromisoformat(n["criado_em"]).astimezone(__import__('datetime').timezone(__import__('datetime').timedelta(hours=-3))).strftime("%d/%m/%Y") if n.get("criado_em") else "—",
             "Status": STATUS_LABELS.get(n["status"], n["status"]),
         } for n in negs[:10]]
         st.dataframe(pd.DataFrame(rows), hide_index=True, use_container_width=True)
@@ -262,46 +262,57 @@ elif pagina == "Nova negociação":
     if forn_selecionado == "— Selecione o fornecedor —":
         st.info("💡 Selecione um fornecedor. Não encontrou? Cadastre em **🏢 Fornecedores**.")
 
-    with st.form("form_neg", clear_on_submit=True):
-        st.subheader("Notas fiscais")
-        num_notas = st.number_input("Quantidade de notas", min_value=1, max_value=20, value=1, step=1)
-        notas_input = []
-        for i in range(int(num_notas)):
-            st.markdown(f"**Nota {i+1}**")
-            c1, c2, c3, c4 = st.columns(4)
-            nf      = c1.text_input("Número NF *",   key=f"nf_{i}",    placeholder="NF-0000")
-            venc    = c2.date_input("Vencimento *",   key=f"venc_{i}",  value=date.today())
-            valor   = c3.number_input("Valor (R$) *", key=f"valor_{i}", min_value=0.0, step=100.0, format="%.2f")
-            desdobr = c4.text_input("Desdobramento",  key=f"desdobr_{i}", placeholder="ex: 1/3")
-            notas_input.append({"id": str(uuid.uuid4())[:8], "nf": nf,
-                                "vencimento": str(venc), "valor": valor, "desdobramento": desdobr})
+    # Notas fiscais — fora do form para calcular em tempo real
+    st.subheader("Notas fiscais")
+    num_notas = st.number_input("Quantidade de notas", min_value=1, max_value=20, value=1, step=1, key="num_notas")
+    notas_input = []
+    for i in range(int(num_notas)):
+        st.markdown(f"**Nota {i+1}**")
+        c1, c2, c3, c4 = st.columns(4)
+        nf      = c1.text_input("Número NF *",   key=f"nf_{i}",    placeholder="NF-0000")
+        venc    = c2.date_input("Vencimento *",   key=f"venc_{i}",  value=date.today(),
+                                format="DD/MM/YYYY")
+        valor   = c3.number_input("Valor (R$) *", key=f"valor_{i}", min_value=0.0, step=100.0, format="%.2f")
+        desdobr = c4.text_input("Desdobramento",  key=f"desdobr_{i}", placeholder="ex: 1/3")
+        notas_input.append({"id": str(uuid.uuid4())[:8], "nf": nf,
+                            "vencimento": venc.strftime("%d/%m/%Y"), "valor": valor, "desdobramento": desdobr})
 
-        valor_total = sum(float(n["valor"]) for n in notas_input)
-        if valor_total > 0:
-            st.markdown(f"**Total das notas: {brl(valor_total)}**")
+    valor_total = sum(float(n["valor"]) for n in notas_input)
+    if valor_total > 0:
+        st.markdown(f"**Total das notas: {brl(valor_total)}**")
 
-        st.subheader("Taxa negociada")
-        taxa = st.slider("Taxa (%)", min_value=0.5, max_value=4.0, value=2.5, step=0.1, format="%.1f%%")
-        ganho = calcular_ganho(valor_total, taxa)
-        valor_pago = valor_total - ganho
+    # Taxa e cálculos — fora do form para atualizar em tempo real
+    st.subheader("Taxa negociada")
+    taxa = st.slider("Taxa (%)", min_value=0.5, max_value=4.0, value=2.5, step=0.1,
+                     format="%.1f%%", key="taxa_slider")
+    ganho = calcular_ganho(valor_total, taxa)
+    valor_pago = valor_total - ganho
 
-        alc = alcada_status(taxa)
-        if alc == "ok":
-            st.markdown('<div class="alcada-ok">✅ <strong>Dentro da alçada (2% – 3%)</strong> — você pode concluir sem aprovação adicional.</div>', unsafe_allow_html=True)
-        elif alc == "above":
-            st.markdown('<div class="alcada-warn">⚠️ <strong>Acima do teto (3%)</strong> — favorável para nós, verifique se está correto.</div>', unsafe_allow_html=True)
-        else:
-            st.markdown('<div class="alcada-err">🔒 <strong>Abaixo da alçada mínima (2%)</strong> — será enviado para aprovação automaticamente.</div>', unsafe_allow_html=True)
+    alc = alcada_status(taxa)
+    if alc == "ok":
+        st.markdown('<div class="alcada-ok">✅ <strong>Dentro da alçada (2% – 3%)</strong> — você pode concluir sem aprovação adicional.</div>', unsafe_allow_html=True)
+    elif alc == "above":
+        st.markdown('<div class="alcada-warn">⚠️ <strong>Acima do teto (3%)</strong> — favorável para nós, verifique se está correto.</div>', unsafe_allow_html=True)
+    else:
+        st.markdown('<div class="alcada-err">🔒 <strong>Abaixo da alçada mínima (2%)</strong> — será enviado para aprovação automaticamente.</div>', unsafe_allow_html=True)
 
+    col_calc, _ = st.columns([1, 3])
+    calcular = col_calc.button("🔢 Calcular", use_container_width=True)
+
+    if calcular or st.session_state.get("mostrar_calculo"):
+        st.session_state["mostrar_calculo"] = True
+        st.markdown("---")
+        st.markdown("#### 📊 Resultado do cálculo")
         c1, c2, c3 = st.columns(3)
         c1.metric("💰 Ganho estimado", brl(ganho))
-        c2.metric("💳 Valor a pagar", brl(valor_pago))
-        c3.metric("📊 Desconto", f"{taxa:.1f}%".replace(".",","))
+        c2.metric("💳 Valor a pagar ao fornecedor", brl(valor_pago))
+        c3.metric("📊 Desconto aplicado", f"{taxa:.1f}%".replace(".",","))
+        st.markdown("---")
 
-        obs = st.text_area("Observações / justificativa", placeholder="Contexto da negociação, posição do fornecedor...")
-        submitted = st.form_submit_button("💾 Registrar negociação", type="primary", use_container_width=True)
+    obs = st.text_area("Observações / justificativa", placeholder="Contexto da negociação, posição do fornecedor...",
+                       key="obs_neg")
 
-    if submitted:
+    if st.button("💾 Registrar negociação", type="primary", use_container_width=True):
         erros = []
         if forn_selecionado == "— Selecione o fornecedor —": erros.append("Selecione um fornecedor.")
         for i, n in enumerate(notas_input):
@@ -310,21 +321,24 @@ elif pagina == "Nova negociação":
         if erros:
             for e in erros: st.error(e)
         else:
-            alc = alcada_status(taxa)
-            status = "pendente" if alc == "below" else "concluida"
-            now = datetime.now().isoformat()
-            timeline = [{"at": now, "msg": f"Registrada por {st.session_state.usuario}. Taxa: {taxa:.2f}%"}]
+            from datetime import timezone, timedelta
+            tz_br = timezone(timedelta(hours=-3))
+            now = datetime.now(tz_br).strftime("%d/%m/%Y %H:%M")
+            now_iso = datetime.now(tz_br).isoformat()
+            timeline = [{"at": now_iso, "msg": f"Registrada por {st.session_state.usuario}. Taxa: {taxa:.2f}%"}]
             if alc == "below":
-                timeline.append({"at": now, "msg": "Enviado para aprovação (taxa abaixo de 2%)."})
+                timeline.append({"at": now_iso, "msg": "Enviado para aprovação (taxa abaixo de 2%)."})
             neg = {
                 "id": novo_id(), "fornecedor": forn_selecionado, "cnpj": cnpj_auto,
                 "notas": notas_input, "taxa": taxa, "obs": obs.strip(),
                 "valor_total": valor_total, "ganho": ganho, "valor_pago": valor_pago,
-                "status": status, "criado_em": now, "criado_por": st.session_state.usuario,
+                "status": "pendente" if alc == "below" else "concluida",
+                "criado_em": now_iso, "criado_por": st.session_state.usuario,
                 "aprovador_id": None, "decisao_em": None, "timeline": timeline,
             }
             save_neg(neg)
             reload()
+            st.session_state["mostrar_calculo"] = False
             st.success("✅ Negociação registrada!" + (" Enviada para aprovação." if alc == "below" else ""))
             st.balloons()
 
@@ -365,7 +379,13 @@ elif pagina == "Negociações":
                         for x in notas_list]), hide_index=True, use_container_width=True)
                 if n.get("obs"): st.info(f"📝 {n['obs']}")
                 for t in n.get("timeline", []):
-                    dt = datetime.fromisoformat(t["at"]).strftime("%d/%m/%Y %H:%M")
+                    try:
+                        dt_obj = datetime.fromisoformat(t["at"])
+                        from datetime import timezone, timedelta
+                        dt_obj = dt_obj.astimezone(timezone(timedelta(hours=-3)))
+                        dt = dt_obj.strftime("%d/%m/%Y %H:%M")
+                    except Exception:
+                        dt = t["at"][:16]
                     st.markdown(f'<div class="timeline-item">🔵 <strong>{dt}</strong> — {t["msg"]}</div>', unsafe_allow_html=True)
                 if st.button("🗑 Excluir", key=f"del_{n['id']}"):
                     delete_neg(n["id"]); reload(); st.rerun()
@@ -395,12 +415,14 @@ elif pagina == "Aprovações":
                 if n.get("obs"): st.info(f"📝 {n['obs']}")
                 ca, cr, _ = st.columns([1, 1, 4])
                 if ca.button("✅ Aprovar", key=f"aprov_{n['id']}", type="primary"):
-                    now = datetime.now().isoformat()
+                    from datetime import timezone, timedelta
+                    now = datetime.now(timezone(timedelta(hours=-3))).isoformat()
                     tl = (n.get("timeline") or []) + [{"at": now, "msg": f"✓ Aprovada por {st.session_state.usuario}"}]
                     update_neg(n["id"], {"status": "aprovada", "decisao_em": now, "aprovador_id": st.session_state.usuario, "timeline": tl})
                     reload(); st.success("Aprovada!"); st.rerun()
                 if cr.button("❌ Recusar", key=f"recus_{n['id']}"):
-                    now = datetime.now().isoformat()
+                    from datetime import timezone, timedelta
+                    now = datetime.now(timezone(timedelta(hours=-3))).isoformat()
                     tl = (n.get("timeline") or []) + [{"at": now, "msg": f"✗ Recusada por {st.session_state.usuario}"}]
                     update_neg(n["id"], {"status": "recusada", "decisao_em": now, "aprovador_id": st.session_state.usuario, "timeline": tl})
                     reload(); st.warning("Recusada."); st.rerun()
