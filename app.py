@@ -38,7 +38,7 @@ def tela_login():
         st.markdown("*Negociação com fornecedores*")
         st.divider()
         with st.form("login_form"):
-            usuario = st.selectbox("Usuário", ["Ana Lima", "Alexandre Vieira", "Beatriz Esteves"])
+            usuario = st.selectbox("Usuário", ["Claudia Passos", "Alexandre Vieira", "Beatriz Esteves"])
             senha = st.text_input("Senha", type="password", placeholder="Digite sua senha")
             entrar = st.form_submit_button("Entrar", type="primary", use_container_width=True)
 
