@@ -16,23 +16,18 @@ def get_client() -> Client:
 # ── CRUD ──────────────────────────────────────────────────────────────────────
 
 def load_negs() -> list:
-    """Carrega todas as negociações com retry automático."""
-    import time
-    for tentativa in range(3):
-        try:
-            db = get_client()
-            res = db.table("negociacoes").select("*").order("criado_em", desc=True).execute()
-            negs = []
-            for row in res.data:
-                row["notas"] = json.loads(row["notas"]) if isinstance(row["notas"], str) else row["notas"]
-                row["timeline"] = json.loads(row["timeline"]) if isinstance(row["timeline"], str) else row["timeline"]
-                negs.append(row)
-            return negs
-        except Exception:
-            if tentativa < 2:
-                time.sleep(0.5)
-            else:
-                return []
+    """Carrega todas as negociações do Supabase."""
+    try:
+        db = get_client()
+        res = db.table("negociacoes").select("*").order("criado_em", desc=True).execute()
+        negs = []
+        for row in res.data:
+            row["notas"] = json.loads(row["notas"]) if isinstance(row["notas"], str) else row["notas"]
+            row["timeline"] = json.loads(row["timeline"]) if isinstance(row["timeline"], str) else row["timeline"]
+            negs.append(row)
+        return negs
+    except Exception:
+        return []
 
 
 def save_neg(neg: dict):
@@ -70,7 +65,30 @@ STATUS_LABELS = {
     "concluida": "Concluída",
 }
 
+def calcular_juros_compostos(valor: float, taxa_mensal: float, dias: int) -> dict:
+    """
+    Calcula desconto por juros compostos com dias exatos.
+    taxa_mensal: em % (ex: 2.0 para 2%)
+    dias: prazo em dias corridos (vencimento - pagamento antecipado)
+    Retorna: valor_presente, ganho, taxa_periodo
+    """
+    if dias <= 0 or valor <= 0 or taxa_mensal <= 0:
+        return {"valor_presente": valor, "ganho": 0.0, "taxa_periodo": 0.0, "dias": dias}
+    
+    taxa = taxa_mensal / 100
+    # Taxa equivalente para o período em dias
+    taxa_periodo = (1 + taxa) ** (dias / 30) - 1
+    valor_presente = round(valor / (1 + taxa_periodo), 2)
+    ganho = round(valor - valor_presente, 2)
+    return {
+        "valor_presente": valor_presente,
+        "ganho": ganho,
+        "taxa_periodo": round(taxa_periodo * 100, 4),
+        "dias": dias
+    }
+
 def calcular_ganho(valor_total: float, taxa: float) -> float:
+    """Mantido para compatibilidade — usa desconto simples sem prazo definido."""
     return round(valor_total * taxa / 100, 2)
 
 def alcada_status(taxa: float) -> str:
@@ -87,18 +105,13 @@ def novo_id() -> str:
 # ── Fornecedores ──────────────────────────────────────────────────────────────
 
 def load_fornecedores() -> list:
-    """Carrega fornecedores com retry automático."""
-    import time
-    for tentativa in range(3):
-        try:
-            db = get_client()
-            res = db.table("fornecedores").select("*").order("nome").execute()
-            return res.data
-        except Exception:
-            if tentativa < 2:
-                time.sleep(0.5)
-            else:
-                return []
+    """Carrega fornecedores do Supabase."""
+    try:
+        db = get_client()
+        res = db.table("fornecedores").select("*").order("nome").execute()
+        return res.data
+    except Exception:
+        return []
 
 def save_fornecedor(nome: str, cnpj: str, contato: str = "", obs: str = ""):
     db = get_client()

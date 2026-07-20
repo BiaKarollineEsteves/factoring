@@ -9,7 +9,7 @@ from pathlib import Path
 from db import (
     load_negs, save_neg, update_neg, delete_neg,
     load_fornecedores, save_fornecedor, update_fornecedor, delete_fornecedor,
-    calcular_ganho, alcada_status, novo_id,
+    calcular_ganho, calcular_juros_compostos, alcada_status, novo_id,
     STATUS_LABELS, APPROVERS
 )
 from excel import gerar_historico, gerar_relatorio
@@ -136,11 +136,11 @@ def tela_login():
             )
         st.markdown(
             f'<div style="background:#f4f7fc;border:1px solid #dde3ef;border-top:none;border-radius:0 0 12px 12px;padding:24px 24px 28px;">'
-            f'<p style="text-align:center;color:#666;font-size:20px;margin:0 0 20px;">Negociação com Fornecedores</p>',
+            f'<p style="text-align:center;color:#666;font-size:13px;margin:0 0 20px;">Negociação com Fornecedores</p>',
             unsafe_allow_html=True
         )
         with st.form("login_form"):
-            usuario = st.selectbox("Usuário", ["Alexandre Vieira", "Beatriz Esteves", "Claudia Passos"])
+            usuario = st.selectbox("Usuário", ["Ana Lima", "Alexandre Vieira", "Beatriz Esteves", "Claudia Passos"])
             senha = st.text_input("Senha", type="password", placeholder="Digite sua senha")
             entrar = st.form_submit_button("Entrar", type="primary", use_container_width=True)
         st.markdown('</div>', unsafe_allow_html=True)
@@ -268,25 +268,36 @@ elif pagina == "Nova negociação":
     notas_input = []
     for i in range(int(num_notas)):
         st.markdown(f"**Nota {i+1}**")
-        c1, c2, c3, c4 = st.columns(4)
-        nf      = c1.text_input("Número NF *",   key=f"nf_{i}",    placeholder="NF-0000")
-        venc    = c2.date_input("Vencimento *",   key=f"venc_{i}",  value=date.today(),
-                                format="DD/MM/YYYY")
-        valor   = c3.number_input("Valor (R$) *", key=f"valor_{i}", min_value=0.0, step=100.0, format="%.2f")
-        desdobr = c4.text_input("Desdobramento",  key=f"desdobr_{i}", placeholder="ex: 1/3")
+        c1, c2, c3, c4, c5 = st.columns(5)
+        nf          = c1.text_input("Número NF *",          key=f"nf_{i}",       placeholder="NF-0000")
+        venc        = c2.date_input("Vencimento original *", key=f"venc_{i}",     value=date.today(), format="DD/MM/YYYY")
+        antecipado  = c3.date_input("Pagamento em *",        key=f"antec_{i}",    value=date.today(), format="DD/MM/YYYY")
+        valor       = c4.number_input("Valor (R$) *",        key=f"valor_{i}",    min_value=0.0, step=100.0, format="%.2f")
+        desdobr     = c5.text_input("Desdobramento",         key=f"desdobr_{i}",  placeholder="ex: 1/3")
+        dias = (venc - antecipado).days
         notas_input.append({"id": str(uuid.uuid4())[:8], "nf": nf,
-                            "vencimento": venc.strftime("%d/%m/%Y"), "valor": valor, "desdobramento": desdobr})
+                            "vencimento": venc.strftime("%d/%m/%Y"),
+                            "data_antecipado": antecipado.strftime("%d/%m/%Y"),
+                            "dias": dias,
+                            "valor": valor, "desdobramento": desdobr})
 
     valor_total = sum(float(n["valor"]) for n in notas_input)
     if valor_total > 0:
         st.markdown(f"**Total das notas: {brl(valor_total)}**")
 
-    # Taxa e cálculos — fora do form para atualizar em tempo real
+    # Valida datas
+    erros_data = []
+    for i, n in enumerate(notas_input):
+        if n["dias"] < 0:
+            erros_data.append(f"Nota {i+1}: data de pagamento é posterior ao vencimento.")
+        elif n["dias"] == 0:
+            erros_data.append(f"Nota {i+1}: data de pagamento igual ao vencimento — sem antecipação.")
+    for e in erros_data:
+        st.warning(e)
+
     st.subheader("Taxa negociada")
-    taxa = st.slider("Taxa (%)", min_value=0.5, max_value=4.0, value=2.5, step=0.1,
+    taxa = st.slider("Taxa (% a.m.)", min_value=0.5, max_value=4.0, value=2.5, step=0.1,
                      format="%.1f%%", key="taxa_slider")
-    ganho = calcular_ganho(valor_total, taxa)
-    valor_pago = valor_total - ganho
 
     alc = alcada_status(taxa)
     if alc == "ok":
@@ -299,14 +310,43 @@ elif pagina == "Nova negociação":
     col_calc, _ = st.columns([1, 3])
     calcular = col_calc.button("🔢 Calcular", use_container_width=True)
 
+    # Calcula juros compostos por nota
+    ganho_total_calc = 0.0
+    valor_pago_total = 0.0
+    detalhes_calc = []
+    for n in notas_input:
+        if float(n["valor"]) > 0 and n["dias"] > 0:
+            res = calcular_juros_compostos(float(n["valor"]), taxa, n["dias"])
+            ganho_total_calc += res["ganho"]
+            valor_pago_total += res["valor_presente"]
+            detalhes_calc.append({**n, **res})
+        else:
+            valor_pago_total += float(n["valor"])
+
+    ganho = round(ganho_total_calc, 2)
+    valor_pago = round(valor_pago_total, 2)
+
     if calcular or st.session_state.get("mostrar_calculo"):
         st.session_state["mostrar_calculo"] = True
         st.markdown("---")
-        st.markdown("#### 📊 Resultado do cálculo")
+        st.markdown("#### 📊 Resultado do cálculo (juros compostos)")
         c1, c2, c3 = st.columns(3)
         c1.metric("💰 Ganho estimado", brl(ganho))
         c2.metric("💳 Valor a pagar ao fornecedor", brl(valor_pago))
-        c3.metric("📊 Desconto aplicado", f"{taxa:.1f}%".replace(".",","))
+        c3.metric("📊 Taxa do período", f"{(ganho/valor_total*100):.4f}%".replace(".",",") if valor_total > 0 else "—")
+
+        if len(detalhes_calc) > 1:
+            st.caption("Detalhamento por nota:")
+            import pandas as pd
+            df_det = pd.DataFrame([{
+                "NF": d["nf"],
+                "Dias antecipados": d["dias"],
+                "Valor original": brl(d["valor"]),
+                "Valor a pagar": brl(d["valor_presente"]),
+                "Ganho": brl(d["ganho"]),
+                "Taxa do período": f"{d['taxa_periodo']:.4f}%".replace(".",","),
+            } for d in detalhes_calc])
+            st.dataframe(df_det, hide_index=True, use_container_width=True)
         st.markdown("---")
 
     obs = st.text_area("Observações / justificativa", placeholder="Contexto da negociação, posição do fornecedor...",
