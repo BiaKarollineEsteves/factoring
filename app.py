@@ -9,6 +9,7 @@ from pathlib import Path
 from db import (
     load_negs, save_neg, update_neg, delete_neg,
     load_fornecedores, save_fornecedor, update_fornecedor, delete_fornecedor,
+    load_compensacoes, save_compensacao, update_compensacao,
     calcular_ganho, calcular_juros_compostos, alcada_status, novo_id,
     STATUS_LABELS, APPROVERS
 )
@@ -140,7 +141,7 @@ def tela_login():
             unsafe_allow_html=True
         )
         with st.form("login_form"):
-            usuario = st.selectbox("Usuário", ["Viviane Ribeiro", "Alexandre Vieira", "Beatriz Esteves", "Claudia Passos"])
+            usuario = st.selectbox("Usuário", ["Ana Lima", "Alexandre Vieira", "Beatriz Esteves", "Claudia Passos"])
             senha = st.text_input("Senha", type="password", placeholder="Digite sua senha")
             entrar = st.form_submit_button("Entrar", type="primary", use_container_width=True)
         st.markdown('</div>', unsafe_allow_html=True)
@@ -166,10 +167,13 @@ if "negs" not in st.session_state:
     st.session_state.negs = load_negs()
 if "fornecedores" not in st.session_state:
     st.session_state.fornecedores = load_fornecedores()
+if "compensacoes" not in st.session_state:
+    st.session_state.compensacoes = load_compensacoes()
 
 def reload():
     st.session_state.negs = load_negs()
     st.session_state.fornecedores = load_fornecedores()
+    st.session_state.compensacoes = load_compensacoes()
 
 # ── Sidebar ────────────────────────────────────────────────────────────────────
 with st.sidebar:
@@ -194,6 +198,7 @@ with st.sidebar:
         (label_aprov,           "Aprovações"),
         ("🏢  Fornecedores",     "Fornecedores"),
         ("📈  Relatórios",       "Relatórios"),
+        ("🔄  Compensações",     "Compensações"),
     ]
     for label, key in menu:
         ativo = st.session_state.pagina == key
@@ -212,6 +217,7 @@ with st.sidebar:
 pagina = st.session_state.pagina
 negs = st.session_state.negs
 fornecedores = st.session_state.fornecedores
+compensacoes = st.session_state.compensacoes
 
 # ══════════════════════════════════════════════════════════════════════════════
 # DASHBOARD
@@ -223,7 +229,7 @@ if pagina == "Dashboard":
     taxa_media = (sum(float(n["taxa"]) for n in concluidas) / len(concluidas)) if concluidas else 0
 
     c1, c2, c3, c4 = st.columns(4)
-    c1.metric("💰 Ganho total", brl(ganho_total))
+    c1.metric("💰 Desconto total", brl(ganho_total))
     c2.metric("📋 Negociações", len(negs))
     c3.metric("📊 Taxa média", f"{taxa_media:.2f}%".replace(".",",") if taxa_media else "—")
     c4.metric("⏳ Aguardando aprovação", pendentes)
@@ -238,7 +244,7 @@ if pagina == "Dashboard":
             "NF(s)": ", ".join(x["nf"] for x in (n["notas"] if isinstance(n["notas"], list) else [])),
             "Valor total": brl(n["valor_total"]),
             "Taxa": f"{float(n['taxa']):.2f}%".replace(".",","),
-            "Ganho": brl(n["ganho"]),
+            "Desconto": brl(n["ganho"]),
             "Data": datetime.fromisoformat(n["criado_em"]).astimezone(__import__('datetime').timezone(__import__('datetime').timedelta(hours=-3))).strftime("%d/%m/%Y") if n.get("criado_em") else "—",
             "Status": STATUS_LABELS.get(n["status"], n["status"]),
         } for n in negs[:10]]
@@ -254,10 +260,11 @@ elif pagina == "Nova negociação":
     forn_map = {f["nome"]: f for f in fornecedores}
 
     st.subheader("Fornecedor")
-    col1, col2 = st.columns(2)
+    col1, col2, col3 = st.columns([2, 2, 1])
     forn_selecionado = col1.selectbox("Fornecedor", forn_nomes, label_visibility="collapsed")
     cnpj_auto = forn_map[forn_selecionado]["cnpj"] if forn_selecionado != "— Selecione o fornecedor —" else ""
     col2.text_input("CNPJ (automático)", value=cnpj_auto, disabled=True)
+    num_adiantamento = col3.text_input("Nº Adiantamento *", placeholder="ex: ADT-001", key="num_adt")
 
     if forn_selecionado == "— Selecione o fornecedor —":
         st.info("💡 Selecione um fornecedor. Não encontrou? Cadastre em **🏢 Fornecedores**.")
@@ -268,16 +275,18 @@ elif pagina == "Nova negociação":
     notas_input = []
     for i in range(int(num_notas)):
         st.markdown(f"**Nota {i+1}**")
-        c1, c2, c3, c4, c5 = st.columns(5)
-        nf          = c1.text_input("Número NF *",          key=f"nf_{i}",       placeholder="NF-0000")
-        venc        = c2.date_input("Vencimento original *", key=f"venc_{i}",     value=date.today(), format="DD/MM/YYYY")
-        antecipado  = c3.date_input("Pagamento em *",        key=f"antec_{i}",    value=date.today(), format="DD/MM/YYYY")
-        valor       = c4.number_input("Valor (R$) *",        key=f"valor_{i}",    min_value=0.0, step=100.0, format="%.2f")
-        desdobr     = c5.text_input("Desdobramento",         key=f"desdobr_{i}",  placeholder="ex: 1/3")
+        c1, c2, c3, c4, c5, c6 = st.columns(6)
+        nf          = c1.text_input("Número NF *",            key=f"nf_{i}",      placeholder="NF-0000")
+        venc        = c2.date_input("Vencimento original *",  key=f"venc_{i}",    value=date.today(), format="DD/MM/YYYY")
+        antecipado  = c3.date_input("Pagamento em *",         key=f"antec_{i}",   value=date.today(), format="DD/MM/YYYY")
+        entrega     = c4.date_input("Previsão de entrega *",  key=f"entrega_{i}", value=date.today(), format="DD/MM/YYYY")
+        valor       = c5.number_input("Valor (R$) *",         key=f"valor_{i}",   min_value=0.0, step=100.0, format="%.2f")
+        desdobr     = c6.text_input("Desdobramento",          key=f"desdobr_{i}", placeholder="ex: 1/3")
         dias = (venc - antecipado).days
         notas_input.append({"id": str(uuid.uuid4())[:8], "nf": nf,
                             "vencimento": venc.strftime("%d/%m/%Y"),
                             "data_antecipado": antecipado.strftime("%d/%m/%Y"),
+                            "data_entrega": entrega.strftime("%d/%m/%Y"),
                             "dias": dias,
                             "valor": valor, "desdobramento": desdobr})
 
@@ -331,7 +340,7 @@ elif pagina == "Nova negociação":
         st.markdown("---")
         st.markdown("#### 📊 Resultado do cálculo (juros compostos)")
         c1, c2, c3 = st.columns(3)
-        c1.metric("💰 Ganho estimado", brl(ganho))
+        c1.metric("💰 Desconto estimado", brl(ganho))
         c2.metric("💳 Valor a pagar ao fornecedor", brl(valor_pago))
         c3.metric("📊 Taxa do período", f"{(ganho/valor_total*100):.4f}%".replace(".",",") if valor_total > 0 else "—")
 
@@ -343,10 +352,66 @@ elif pagina == "Nova negociação":
                 "Dias antecipados": d["dias"],
                 "Valor original": brl(d["valor"]),
                 "Valor a pagar": brl(d["valor_presente"]),
-                "Ganho": brl(d["ganho"]),
+                "Desconto": brl(d["ganho"]),
                 "Taxa do período": f"{d['taxa_periodo']:.4f}%".replace(".",","),
             } for d in detalhes_calc])
             st.dataframe(df_det, hide_index=True, use_container_width=True)
+        st.markdown("---")
+
+        # ── E-mail padrão ──────────────────────────────────────────────────
+        st.markdown("#### 📧 E-mail para a factoring")
+        st.caption("Copie o texto abaixo e responda à factoring confirmando os valores.")
+
+        linhas_notas = ""
+        for d in detalhes_calc:
+            tp = "{:.4f}".format(d["taxa_periodo"])
+            tm = "{:.2f}".format(taxa)
+            linhas_notas += (
+                "  NF " + str(d["nf"]) +
+                " | Vencimento: " + str(d["vencimento"]) +
+                " | Valor original: " + brl(d["valor"]) +
+                " | Valor com desconto: " + brl(d["valor_presente"]) +
+                " | Desconto: " + brl(d["ganho"]) +
+                " (" + tp + "% no periodo / " + tm + "% a.m. / " + str(d["dias"]) + " dias)\n"
+            )
+
+        email_body = (
+            "Prezados,\n\n"
+            "Conforme negociacao realizada, confirmamos o adiantamento das notas abaixo:\n\n"
+            "Fornecedor: " + forn_selecionado + "\n"
+            "Taxa negociada: " + "{:.2f}".format(taxa) + "% ao mes (juros compostos)\n\n"
+            "Notas fiscais:\n" + linhas_notas + "\n"
+            "Resumo:\n"
+            "  Valor total das notas:        " + brl(valor_total) + "\n"
+            "  Valor total a receber:        " + brl(valor_pago) + "\n"
+            "  Desconto total: " + brl(ganho) + "\n\n"
+            "Atenciosamente,\n" + st.session_state.usuario + "\nGrupo LLE"
+        )
+        st.code(email_body, language=None)
+        st.markdown("---")
+
+        # ── E-mail padrão ──────────────────────────────────────────────────
+        st.markdown("#### 📧 E-mail para a factoring")
+        st.caption("Copie o texto abaixo e responda à factoring confirmando os valores.")
+
+        linhas_notas = ""
+        for d in detalhes_calc:
+            taxa_per = d["taxa_periodo"]
+            dias_d = d["dias"]
+            linha = (
+                "  NF " + d["nf"] +
+                " | Vencimento: " + d["vencimento"] +
+                " | Valor original: " + brl(d["valor"]) +
+                " | Valor com desconto: " + brl(d["valor_presente"]) +
+                " | Desconto: " + brl(d["ganho"]) +
+                " (" + "{:.4f}".format(taxa_per) + "% no periodo / " +
+                "{:.2f}".format(taxa) + "% a.m. / " + str(dias_d) + " dias)\n"
+            )
+            linhas_notas += linha
+
+        email_body2 = None  # duplicate removed
+
+        st.code(email_body, language=None)
         st.markdown("---")
 
     obs = st.text_area("Observações / justificativa", placeholder="Contexto da negociação, posição do fornecedor...",
@@ -355,6 +420,7 @@ elif pagina == "Nova negociação":
     if st.button("💾 Registrar negociação", type="primary", use_container_width=True):
         erros = []
         if forn_selecionado == "— Selecione o fornecedor —": erros.append("Selecione um fornecedor.")
+        if not num_adiantamento.strip(): erros.append("Número do adiantamento é obrigatório.")
         for i, n in enumerate(notas_input):
             if not n["nf"].strip(): erros.append(f"Nota {i+1}: número da NF obrigatório.")
             if float(n["valor"]) <= 0: erros.append(f"Nota {i+1}: valor deve ser maior que zero.")
@@ -365,7 +431,8 @@ elif pagina == "Nova negociação":
             tz_br = timezone(timedelta(hours=-3))
             now = datetime.now(tz_br).strftime("%d/%m/%Y %H:%M")
             now_iso = datetime.now(tz_br).isoformat()
-            timeline = [{"at": now_iso, "msg": f"Registrada por {st.session_state.usuario}. Taxa: {taxa:.2f}%"}]
+            _adt = num_adiantamento.strip() or "—"
+            timeline = [{"at": now_iso, "msg": f"Registrada por {st.session_state.usuario}. Nº Adiantamento: {_adt}. Taxa: {taxa:.2f}%. Ganho: {brl(ganho)}. Pago pela factoring em {notas_input[0]['data_antecipado'] if notas_input else '—'}."}]
             if alc == "below":
                 timeline.append({"at": now_iso, "msg": "Enviado para aprovação (taxa abaixo de 2%)."})
             neg = {
@@ -377,6 +444,30 @@ elif pagina == "Nova negociação":
                 "aprovador_id": None, "decisao_em": None, "timeline": timeline,
             }
             save_neg(neg)
+
+            # Gera compensações pendentes para cada nota
+            for n in notas_input:
+                if float(n["valor"]) > 0 and n.get("data_antecipado"):
+                    res = calcular_juros_compostos(float(n["valor"]), taxa, n["dias"])
+                    comp = {
+                        "id": novo_id(),
+                        "num_adiantamento": num_adiantamento.strip() or "—",
+                        "neg_id": neg["id"],
+                        "fornecedor": forn_selecionado,
+                        "nf": n["nf"],
+                        "valor_nf": float(n["valor"]),
+                        "valor_desconto": res["ganho"],
+                        "data_vencimento": n["vencimento"],
+                        "data_antecipado": n["data_antecipado"],
+                        "status": "pendente",
+                        "criado_em": now_iso,
+                        "criado_por": st.session_state.usuario,
+                        "compensado_em": None,
+                        "compensado_por": None,
+                        "obs": None,
+                    }
+                    save_compensacao(comp)
+
             reload()
             st.session_state["mostrar_calculo"] = False
             st.success("✅ Negociação registrada!" + (" Enviada para aprovação." if alc == "below" else ""))
@@ -411,11 +502,16 @@ elif pagina == "Negociações":
                 c1, c2, c3, c4 = st.columns(4)
                 c1.metric("Valor total", brl(n["valor_total"]))
                 c2.metric("Taxa", f"{float(n['taxa']):.2f}%".replace(".",","))
-                c3.metric("Ganho", brl(n["ganho"]))
+                c3.metric("Desconto", brl(n["ganho"]))
                 c4.metric("Criado por", n.get("criado_por","—"))
                 if notas_list:
-                    st.dataframe(pd.DataFrame([{"NF": x["nf"], "Vencimento": x["vencimento"],
-                        "Valor": brl(x["valor"]), "Desdobramento": x.get("desdobramento","")}
+                    st.dataframe(pd.DataFrame([{
+                        "NF": x["nf"],
+                        "Vencimento": x["vencimento"],
+                        "Pagamento em": x.get("data_antecipado","—"),
+                        "Previsão entrega": x.get("data_entrega","—"),
+                        "Valor": brl(x["valor"]),
+                        "Desdobramento": x.get("desdobramento","")}
                         for x in notas_list]), hide_index=True, use_container_width=True)
                 if n.get("obs"): st.info(f"📝 {n['obs']}")
                 for t in n.get("timeline", []):
@@ -448,9 +544,9 @@ elif pagina == "Aprovações":
                 c2.error(f"⚠ {float(n['taxa']):.2f}% — abaixo da alçada".replace(".",","))
                 c1, c2, c3, c4 = st.columns(4)
                 c1.metric("Valor total", brl(n["valor_total"]))
-                c2.metric(f"Ganho c/ {float(n['taxa']):.1f}%".replace(".",","), brl(n["ganho"]))
+                c2.metric(f"Desconto c/ {float(n['taxa']):.1f}%".replace(".",","), brl(n["ganho"]))
                 ganho_2 = float(n["valor_total"]) * 0.02
-                c3.metric("Ganho c/ 2,0%", brl(ganho_2))
+                c3.metric("Desconto c/ 2,0%", brl(ganho_2))
                 c4.metric("Diferença", f"- {brl(ganho_2 - float(n['ganho']))}")
                 if n.get("obs"): st.info(f"📝 {n['obs']}")
                 ca, cr, _ = st.columns([1, 1, 4])
@@ -480,11 +576,23 @@ elif pagina == "Fornecedores":
             c3, c4  = st.columns(2)
             contato = c3.text_input("Contato (opcional)", placeholder="Nome do responsável")
             obs_f   = c4.text_input("Observações (opcional)")
+
+            st.markdown("**Dados bancários**")
+            cb1, cb2, cb3 = st.columns(3)
+            banco   = cb1.text_input("Banco", placeholder="Ex: Bradesco")
+            agencia = cb2.text_input("Agência", placeholder="Ex: 1234-5")
+            conta   = cb3.text_input("Conta", placeholder="Ex: 12345-6")
+            cb4, cb5, cb6 = st.columns(3)
+            tipo    = cb4.selectbox("Tipo de conta", ["Corrente", "Poupança"])
+            pix     = cb5.text_input("PIX", placeholder="CNPJ, e-mail, telefone ou chave aleatória")
+            cnpj_fav = cb6.text_input("CNPJ do favorecido", placeholder="00.000.000/0000-00")
+
             if st.form_submit_button("💾 Cadastrar", type="primary", use_container_width=True):
                 if not nome.strip() or not cnpj.strip():
                     st.error("Nome e CNPJ são obrigatórios.")
                 else:
-                    save_fornecedor(nome, cnpj, contato, obs_f)
+                    save_fornecedor(nome, cnpj, contato, obs_f,
+                                    banco, agencia, conta, tipo, pix, cnpj_fav)
                     reload(); st.success(f"✅ {nome} cadastrado!"); st.rerun()
     st.divider()
     if not fornecedores:
@@ -496,14 +604,27 @@ elif pagina == "Fornecedores":
         for f in lista:
             with st.expander(f"🏢 **{f['nome']}** — {f.get('cnpj','—')}"):
                 c1, c2 = st.columns(2)
-                nn = c1.text_input("Nome",    value=f["nome"],           key=f"fn_{f['id']}")
-                nc = c2.text_input("CNPJ",    value=f.get("cnpj",""),    key=f"fc_{f['id']}")
+                nn  = c1.text_input("Nome",    value=f["nome"],              key=f"fn_{f['id']}")
+                nc  = c2.text_input("CNPJ",    value=f.get("cnpj",""),       key=f"fc_{f['id']}")
                 c3, c4 = st.columns(2)
-                nct = c3.text_input("Contato",value=f.get("contato",""),key=f"fct_{f['id']}")
-                no  = c4.text_input("Obs",    value=f.get("obs",""),    key=f"fo_{f['id']}")
+                nct = c3.text_input("Contato", value=f.get("contato",""),    key=f"fct_{f['id']}")
+                no  = c4.text_input("Obs",     value=f.get("obs",""),        key=f"fo_{f['id']}")
+                st.markdown("**Dados bancários**")
+                eb1, eb2, eb3 = st.columns(3)
+                nb  = eb1.text_input("Banco",    value=f.get("banco",""),     key=f"fb_{f['id']}")
+                nag = eb2.text_input("Agência",  value=f.get("agencia",""),   key=f"fag_{f['id']}")
+                nct2= eb3.text_input("Conta",    value=f.get("conta",""),     key=f"fco_{f['id']}")
+                eb4, eb5, eb6 = st.columns(3)
+                ntp = eb4.selectbox("Tipo", ["Corrente","Poupança"],
+                                    index=0 if f.get("tipo_conta","Corrente")=="Corrente" else 1,
+                                    key=f"ftp_{f['id']}")
+                npx = eb5.text_input("PIX",      value=f.get("pix",""),       key=f"fpx_{f['id']}")
+                ncf = eb6.text_input("CNPJ fav.", value=f.get("cnpj_fav",""), key=f"fcf_{f['id']}")
                 cb, cd, _ = st.columns([1, 1, 4])
                 if cb.button("💾 Salvar", key=f"fs_{f['id']}", type="primary"):
-                    update_fornecedor(f["id"], {"nome": nn, "cnpj": nc, "contato": nct, "obs": no})
+                    update_fornecedor(f["id"], {"nome": nn, "cnpj": nc, "contato": nct, "obs": no,
+                                                "banco": nb, "agencia": nag, "conta": nct2,
+                                                "tipo_conta": ntp, "pix": npx, "cnpj_fav": ncf})
                     reload(); st.success("Atualizado!"); st.rerun()
                 if cd.button("🗑 Excluir", key=f"fd_{f['id']}"):
                     delete_fornecedor(f["id"]); reload(); st.rerun()
@@ -518,7 +639,7 @@ elif pagina == "Relatórios":
     taxa_media = (sum(float(n["taxa"]) for n in concluidas) / len(concluidas)) if concluidas else 0
     vol_total = sum(float(n["valor_total"]) for n in concluidas)
     c1, c2, c3 = st.columns(3)
-    c1.metric("💰 Ganho total", brl(ganho_total))
+    c1.metric("💰 Desconto total", brl(ganho_total))
     c2.metric("📦 Volume negociado", brl(vol_total))
     c3.metric("📊 Taxa média", f"{taxa_media:.2f}%".replace(".",",") if taxa_media else "—")
     st.divider()
@@ -530,14 +651,14 @@ elif pagina == "Relatórios":
         for n in concluidas:
             f = n["fornecedor"]
             if f not in por_forn:
-                por_forn[f] = {"Fornecedor": f, "Negociações": 0, "Volume (R$)": 0.0, "Ganho (R$)": 0.0}
+                por_forn[f] = {"Fornecedor": f, "Negociações": 0, "Volume (R$)": 0.0, "Desconto (R$)": 0.0}
             por_forn[f]["Negociações"] += 1
             por_forn[f]["Volume (R$)"] += float(n["valor_total"])
-            por_forn[f]["Ganho (R$)"] += float(n["ganho"])
+            por_forn[f]["Desconto (R$)"] += float(n["ganho"])
         df = pd.DataFrame(por_forn.values()).sort_values("Ganho (R$)", ascending=False)
-        df["% do total"] = (df["Ganho (R$)"] / ganho_total * 100).map("{:.1f}%".format) if ganho_total else "—"
+        df["% do total"] = (df["Desconto (R$)"] / ganho_total * 100).map("{:.1f}%".format) if ganho_total else "—"
         df["Volume (R$)"] = df["Volume (R$)"].map(brl)
-        df["Ganho (R$)"] = df["Ganho (R$)"].map(brl)
+        df["Desconto (R$)"] = df["Desconto (R$)"].map(brl)
         st.dataframe(df, hide_index=True, use_container_width=True)
     st.divider()
     col1, col2 = st.columns(2)
@@ -546,3 +667,105 @@ elif pagina == "Relatórios":
                          file_name=f"relatorio_factoring_{periodo.replace(' ','_')}.xlsx",
                          mime="application/vnd.openxmlformats-officedocument.spreadsheetml.sheet",
                          use_container_width=True, type="primary")
+
+# ══════════════════════════════════════════════════════════════════════════════
+# COMPENSAÇÕES
+# ══════════════════════════════════════════════════════════════════════════════
+elif pagina == "Compensações":
+    page_header("Compensações", "Adiantamentos pendentes e compensados")
+
+    comp_pendentes = [c for c in compensacoes if c["status"] == "pendente"]
+    comp_feitas    = [c for c in compensacoes if c["status"] == "compensado"]
+
+    # ── KPIs ──────────────────────────────────────────────────────────────────
+    total_pendente = sum(float(c["valor_desconto"]) for c in comp_pendentes)
+    total_compensado = sum(float(c["valor_desconto"]) for c in comp_feitas)
+    c1, c2, c3 = st.columns(3)
+    c1.metric("⏳ Pendentes", len(comp_pendentes))
+    c2.metric("💰 Desconto a compensar", brl(total_pendente))
+    c3.metric("✅ Já compensados", len(comp_feitas))
+
+    st.divider()
+
+    # ── PENDENTES ─────────────────────────────────────────────────────────────
+    st.subheader("⏳ Pendentes de compensação")
+    if not comp_pendentes:
+        st.success("Nenhuma compensação pendente!")
+    else:
+        # Ordena por data de vencimento
+        from datetime import datetime as dt2
+        def parse_date(d):
+            try: return dt2.strptime(d, "%d/%m/%Y")
+            except: return dt2.max
+        comp_pendentes_sorted = sorted(comp_pendentes, key=lambda x: parse_date(x["data_vencimento"]))
+
+        for c in comp_pendentes_sorted:
+            # Alerta se vence hoje ou já venceu
+            try:
+                from datetime import timezone, timedelta
+                hoje = datetime.now(timezone(timedelta(hours=-3))).date()
+                data_venc = dt2.strptime(c["data_vencimento"], "%d/%m/%Y").date()
+                atrasado = data_venc < hoje
+                hoje_flag = data_venc == hoje
+            except:
+                atrasado = False
+                hoje_flag = False
+
+            borda = "border-left: 4px solid #dc3545;" if atrasado else ("border-left: 4px solid #FAC319;" if hoje_flag else "")
+            with st.container(border=True):
+                if atrasado:
+                    st.error(f"⚠️ Vencimento em atraso — deveria ter sido compensado em {c['data_vencimento']}")
+                elif hoje_flag:
+                    st.warning(f"🔔 Compensar hoje — vencimento em {c['data_vencimento']}")
+
+                col1, col2 = st.columns([3, 1])
+                col1.markdown(f"**{c['fornecedor']}** — NF {c['nf']} — Nº Adiantamento: `{c['num_adiantamento']}`")
+                col1.caption(f"Pago antecipado em {c['data_antecipado']} · Compensar em {c['data_vencimento']} · Registrado por {c.get('criado_por','—')}")
+
+                m1, m2, m3 = st.columns(3)
+                m1.metric("Valor da NF", brl(c["valor_nf"]))
+                m2.metric("💰 Desconto a compensar", brl(c["valor_desconto"]))
+                m3.metric("📅 Data de compensação", c["data_vencimento"])
+
+                obs_comp = st.text_input("Observação (opcional)", key=f"obs_comp_{c['id']}", placeholder="Ex: compensado na fatura 123")
+
+                if st.button("✅ Marcar como compensado", key=f"comp_{c['id']}", type="primary"):
+                    from datetime import timezone, timedelta
+                    now_comp = datetime.now(timezone(timedelta(hours=-3))).isoformat()
+                    update_compensacao(c["id"], {
+                        "status": "compensado",
+                        "compensado_em": now_comp,
+                        "compensado_por": st.session_state.usuario,
+                        "obs": obs_comp.strip() or None,
+                    })
+                    # Atualiza timeline da negociação original
+                    neg_original = next((n for n in negs if n["id"] == c["neg_id"]), None)
+                    if neg_original:
+                        tl = neg_original.get("timeline") or []
+                        tl.append({"at": now_comp, "msg": f"✅ Desconto de {brl(c['valor_desconto'])} compensado por {st.session_state.usuario}. Nº Adiantamento: {c['num_adiantamento']}."})
+                        update_neg(c["neg_id"], {"timeline": tl})
+                    reload()
+                    st.success(f"Compensado! Desconto de {brl(c['valor_desconto'])} registrado.")
+                    st.rerun()
+
+    st.divider()
+
+    # ── COMPENSADOS ───────────────────────────────────────────────────────────
+    st.subheader("✅ Histórico de compensações")
+    if not comp_feitas:
+        st.info("Nenhuma compensação realizada ainda.")
+    else:
+        rows = []
+        for c in sorted(comp_feitas, key=lambda x: x.get("compensado_em",""), reverse=True):
+            rows.append({
+                "Nº Adiantamento": c["num_adiantamento"],
+                "Fornecedor": c["fornecedor"],
+                "NF": c["nf"],
+                "Valor NF": brl(c["valor_nf"]),
+                "Desconto compensado": brl(c["valor_desconto"]),
+                "Vencimento original": c["data_vencimento"],
+                "Compensado em": datetime.fromisoformat(c["compensado_em"]).strftime("%d/%m/%Y %H:%M") if c.get("compensado_em") else "—",
+                "Compensado por": c.get("compensado_por", "—"),
+                "Obs": c.get("obs") or "—",
+            })
+        st.dataframe(pd.DataFrame(rows), hide_index=True, use_container_width=True)

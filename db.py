@@ -113,7 +113,9 @@ def load_fornecedores() -> list:
     except Exception:
         return []
 
-def save_fornecedor(nome: str, cnpj: str, contato: str = "", obs: str = ""):
+def save_fornecedor(nome: str, cnpj: str, contato: str = "", obs: str = "",
+                    banco: str = "", agencia: str = "", conta: str = "",
+                    tipo_conta: str = "Corrente", pix: str = "", cnpj_fav: str = ""):
     db = get_client()
     db.table("fornecedores").insert({
         "id": str(uuid.uuid4())[:10],
@@ -121,6 +123,12 @@ def save_fornecedor(nome: str, cnpj: str, contato: str = "", obs: str = ""):
         "cnpj": cnpj.strip(),
         "contato": contato.strip(),
         "obs": obs.strip(),
+        "banco": banco.strip(),
+        "agencia": agencia.strip(),
+        "conta": conta.strip(),
+        "tipo_conta": tipo_conta,
+        "pix": pix.strip(),
+        "cnpj_fav": cnpj_fav.strip(),
         "criado_em": datetime.now().isoformat(),
     }).execute()
 
@@ -131,3 +139,22 @@ def update_fornecedor(forn_id: str, fields: dict):
 def delete_fornecedor(forn_id: str):
     db = get_client()
     db.table("fornecedores").delete().eq("id", forn_id).execute()
+
+
+# ── Compensações ──────────────────────────────────────────────────────────────
+
+def load_compensacoes() -> list:
+    try:
+        db = get_client()
+        res = db.table("compensacoes").select("*").order("data_vencimento").execute()
+        return res.data
+    except Exception:
+        return []
+
+def save_compensacao(comp: dict):
+    db = get_client()
+    db.table("compensacoes").insert(comp).execute()
+
+def update_compensacao(comp_id: str, fields: dict):
+    db = get_client()
+    db.table("compensacoes").update(fields).eq("id", comp_id).execute()

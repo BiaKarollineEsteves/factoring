@@ -30,7 +30,7 @@ def gerar_historico(negs: list) -> bytes:
     thin = Border(bottom=Side(style="thin", color="EEEEEE"))
 
     headers = ["ID", "Data", "Fornecedor", "CNPJ", "NF(s)", "Vencimentos",
-               "Desdobramentos", "Valor Total", "Taxa (%)", "Ganho",
+               "Desdobramentos", "Valor Total", "Taxa (%)", "Desconto",
                "Valor Pago", "Status", "Criado por", "Aprovador", "Decisão em", "Obs"]
     ws.append(headers)
     _header(ws, 1, len(headers))
@@ -102,7 +102,7 @@ def gerar_relatorio(concluidas: list, periodo: str) -> bytes:
         ("", ""),
         ("RESUMO EXECUTIVO", ""),
         ("Negociações concluídas", len(concluidas)),
-        ("Ganho total (R$)", ganho_total),
+        ("Desconto total (R$)", ganho_total),
         ("Taxa média negociada (%)", taxa_media),
         ("Volume total negociado (R$)", vol_total),
     ]
@@ -116,7 +116,7 @@ def gerar_relatorio(concluidas: list, periodo: str) -> bytes:
 
     # Detalhamento
     ws2 = wb.create_sheet("Detalhamento")
-    headers2 = ["Fornecedor", "NF(s)", "Valor (R$)", "Taxa (%)", "Ganho (R$)", "Valor Pago (R$)", "Data", "Aprovador"]
+    headers2 = ["Fornecedor", "NF(s)", "Valor (R$)", "Taxa (%)", "Desconto (R$)", "Valor Pago (R$)", "Data", "Aprovador"]
     ws2.append(headers2)
     _header(ws2, 1, len(headers2))
     ws2.freeze_panes = "A2"
