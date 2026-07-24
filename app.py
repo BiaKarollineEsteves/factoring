@@ -260,11 +260,10 @@ elif pagina == "Nova negociação":
     forn_map = {f["nome"]: f for f in fornecedores}
 
     st.subheader("Fornecedor")
-    col1, col2, col3 = st.columns([2, 2, 1])
+    col1, col2 = st.columns(2)
     forn_selecionado = col1.selectbox("Fornecedor", forn_nomes, label_visibility="collapsed")
     cnpj_auto = forn_map[forn_selecionado]["cnpj"] if forn_selecionado != "— Selecione o fornecedor —" else ""
     col2.text_input("CNPJ (automático)", value=cnpj_auto, disabled=True)
-    num_adiantamento = col3.text_input("Nº Adiantamento *", placeholder="ex: ADT-001", key="num_adt")
 
     if forn_selecionado == "— Selecione o fornecedor —":
         st.info("💡 Selecione um fornecedor. Não encontrou? Cadastre em **🏢 Fornecedores**.")
@@ -420,9 +419,9 @@ elif pagina == "Nova negociação":
     if st.button("💾 Registrar negociação", type="primary", use_container_width=True):
         erros = []
         if forn_selecionado == "— Selecione o fornecedor —": erros.append("Selecione um fornecedor.")
-        if not num_adiantamento.strip(): erros.append("Número do adiantamento é obrigatório.")
         for i, n in enumerate(notas_input):
             if not n["nf"].strip(): erros.append(f"Nota {i+1}: número da NF obrigatório.")
+            if not n["num_adiantamento"]: erros.append(f"Nota {i+1}: número do adiantamento obrigatório.")
             if float(n["valor"]) <= 0: erros.append(f"Nota {i+1}: valor deve ser maior que zero.")
         if erros:
             for e in erros: st.error(e)
@@ -431,8 +430,8 @@ elif pagina == "Nova negociação":
             tz_br = timezone(timedelta(hours=-3))
             now = datetime.now(tz_br).strftime("%d/%m/%Y %H:%M")
             now_iso = datetime.now(tz_br).isoformat()
-            _adt = num_adiantamento.strip() or "—"
-            timeline = [{"at": now_iso, "msg": f"Registrada por {st.session_state.usuario}. Nº Adiantamento: {_adt}. Taxa: {taxa:.2f}%. Ganho: {brl(ganho)}. Pago pela factoring em {notas_input[0]['data_antecipado'] if notas_input else '—'}."}]
+            _adts = ", ".join([n["num_adiantamento"] or "—" for n in notas_input])
+            timeline = [{"at": now_iso, "msg": f"Registrada por {st.session_state.usuario}. Nº(s) Adiantamento: {_adts}. Taxa: {taxa:.2f}%. Desconto total: {brl(ganho)}. Pago pela factoring."}]
             if alc == "below":
                 timeline.append({"at": now_iso, "msg": "Enviado para aprovação (taxa abaixo de 2%)."})
             neg = {
@@ -451,7 +450,7 @@ elif pagina == "Nova negociação":
                     res = calcular_juros_compostos(float(n["valor"]), taxa, n["dias"])
                     comp = {
                         "id": novo_id(),
-                        "num_adiantamento": num_adiantamento.strip() or "—",
+                        "num_adiantamento": n.get("num_adiantamento") or "—",
                         "neg_id": neg["id"],
                         "fornecedor": forn_selecionado,
                         "nf": n["nf"],
