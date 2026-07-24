@@ -357,61 +357,48 @@ elif pagina == "Nova negociação":
             st.dataframe(df_det, hide_index=True, use_container_width=True)
         st.markdown("---")
 
-        # ── E-mail padrão ──────────────────────────────────────────────────
+        # ── E-mail para a factoring ────────────────────────────────────────
         st.markdown("#### 📧 E-mail para a factoring")
         st.caption("Copie o texto abaixo e responda à factoring confirmando os valores.")
 
         linhas_notas = ""
-        for d in detalhes_calc:
+        for _di, d in enumerate(detalhes_calc):
+            _nota_input = notas_input[_di] if _di < len(notas_input) else {}
+            _adt_n = _nota_input.get("num_adiantamento","—") or "—"
             tp = "{:.4f}".format(d["taxa_periodo"])
             tm = "{:.2f}".format(taxa)
+            _fator_e = "{:.6f}".format((1 + taxa/100) ** (d["dias"]/30))
             linhas_notas += (
-                "  NF " + str(d["nf"]) +
-                " | Vencimento: " + str(d["vencimento"]) +
-                " | Valor original: " + brl(d["valor"]) +
-                " | Valor com desconto: " + brl(d["valor_presente"]) +
-                " | Desconto: " + brl(d["ganho"]) +
-                " (" + tp + "% no periodo / " + tm + "% a.m. / " + str(d["dias"]) + " dias)\n"
+                "  Nº Adiantamento: " + _adt_n + "\n"
+                "  NF: " + str(d["nf"]) + "\n"
+                "  Vencimento original: " + str(d["vencimento"]) + "\n"
+                "  Dias antecipados: " + str(d["dias"]) + " dias\n"
+                "  Valor original: " + brl(d["valor"]) + "\n"
+                "  Calculo VP: " + brl(d["valor"]) + " / (1 + " + tm + "%)^(" + str(d["dias"]) + "/30)" +
+                " = " + brl(d["valor"]) + " / " + _fator_e + " = " + brl(d["valor_presente"]) + "\n"
+                "  Desconto: " + brl(d["ganho"]) + " (" + tp + "% no periodo / " + tm + "% a.m.)\n\n"
             )
 
         email_body = (
             "Prezados,\n\n"
             "Conforme negociacao realizada, confirmamos o adiantamento das notas abaixo:\n\n"
             "Fornecedor: " + forn_selecionado + "\n"
-            "Taxa negociada: " + "{:.2f}".format(taxa) + "% ao mes (juros compostos)\n\n"
-            "Notas fiscais:\n" + linhas_notas + "\n"
-            "Resumo:\n"
-            "  Valor total das notas:        " + brl(valor_total) + "\n"
-            "  Valor total a receber:        " + brl(valor_pago) + "\n"
-            "  Desconto total: " + brl(ganho) + "\n\n"
+            "Taxa negociada: " + "{:.2f}".format(taxa) + "% ao mes (juros compostos)\n"
+            "Data do adiantamento: " + notas_input[0].get("data_antecipado","") + "\n\n"
+            "Detalhamento por nota:\n"
+            "----------------------------------------\n" +
+            linhas_notas +
+            "----------------------------------------\n"
+            "RESUMO\n"
+            "  Valor total das notas:   " + brl(valor_total) + "\n"
+            "  Valor total a receber:   " + brl(valor_pago) + "\n"
+            "  Desconto total:          " + brl(ganho) + "\n\n"
             "Atenciosamente,\n" + st.session_state.usuario + "\nGrupo LLE"
         )
         st.code(email_body, language=None)
         st.markdown("---")
 
         # ── E-mail padrão ──────────────────────────────────────────────────
-        st.markdown("#### 📧 E-mail para a factoring")
-        st.caption("Copie o texto abaixo e responda à factoring confirmando os valores.")
-
-        linhas_notas = ""
-        for d in detalhes_calc:
-            taxa_per = d["taxa_periodo"]
-            dias_d = d["dias"]
-            linha = (
-                "  NF " + d["nf"] +
-                " | Vencimento: " + d["vencimento"] +
-                " | Valor original: " + brl(d["valor"]) +
-                " | Valor com desconto: " + brl(d["valor_presente"]) +
-                " | Desconto: " + brl(d["ganho"]) +
-                " (" + "{:.4f}".format(taxa_per) + "% no periodo / " +
-                "{:.2f}".format(taxa) + "% a.m. / " + str(dias_d) + " dias)\n"
-            )
-            linhas_notas += linha
-
-        email_body2 = None  # duplicate removed
-
-        st.code(email_body, language=None)
-        st.markdown("---")
 
     obs = st.text_area("Observações / justificativa", placeholder="Contexto da negociação, posição do fornecedor...",
                        key="obs_neg")
@@ -504,14 +491,37 @@ elif pagina == "Negociações":
                 c3.metric("Desconto", brl(n["ganho"]))
                 c4.metric("Criado por", n.get("criado_por","—"))
                 if notas_list:
-                    st.dataframe(pd.DataFrame([{
-                        "NF": x["nf"],
-                        "Vencimento": x["vencimento"],
-                        "Pagamento em": x.get("data_antecipado","—"),
-                        "Previsão entrega": x.get("data_entrega","—"),
-                        "Valor": brl(x["valor"]),
-                        "Desdobramento": x.get("desdobramento","")}
-                        for x in notas_list]), hide_index=True, use_container_width=True)
+                    from db import calcular_juros_compostos as _cjc2
+                    _taxa2 = float(n["taxa"])
+                    rows_n2 = []
+                    for x in notas_list:
+                        _dias2 = int(x["dias"]) if x.get("dias") else 0
+                        _val2  = float(x["valor"]) if x.get("valor") else 0
+                        if _val2 > 0 and _dias2 > 0:
+                            _r2   = _cjc2(_val2, _taxa2, _dias2)
+                            _desc2 = brl(_r2["ganho"])
+                            _vp2   = brl(_r2["valor_presente"])
+                            _fator2 = "{:.6f}".format((1 + _taxa2/100) ** (_dias2/30))
+                            _form2 = brl(_val2) + " ÷ " + _fator2 + " = " + _vp2
+                        else:
+                            _desc2 = "—"
+                            _vp2   = brl(_val2)
+                            _form2 = "—"
+                        rows_n2.append({
+                            "Nº Adiantamento": x.get("num_adiantamento","—"),
+                            "NF": x["nf"],
+                            "Dias antecipados": _dias2 if _dias2 > 0 else "—",
+                            "Valor original": brl(_val2),
+                            "Valor com desconto": _vp2,
+                            "Desconto": _desc2,
+                            "Fórmula VP": _form2,
+                            "Vencimento": x.get("vencimento",""),
+                            "Pagamento antecipado": x.get("data_antecipado","—"),
+                            "Previsão entrega": x.get("data_entrega","—"),
+                            "Desdobramento": x.get("desdobramento",""),
+                        })
+                    st.dataframe(pd.DataFrame(rows_n2), hide_index=True, use_container_width=True)
+
                 if n.get("obs"): st.info(f"📝 {n['obs']}")
                 for t in n.get("timeline", []):
                     try:
@@ -522,8 +532,140 @@ elif pagina == "Negociações":
                     except Exception:
                         dt = t["at"][:16]
                     st.markdown(f'<div class="timeline-item">🔵 <strong>{dt}</strong> — {t["msg"]}</div>', unsafe_allow_html=True)
-                if st.button("🗑 Excluir", key=f"del_{n['id']}"):
-                    delete_neg(n["id"]); reload(); st.rerun()
+
+                # ── Histórico da negociação ──────────────────────────
+                with st.expander("📄 Gerar histórico desta negociação"):
+                    _tl_hist = n.get("timeline", [])
+                    _notas_hist = n.get("notas", []) if isinstance(n.get("notas"), list) else []
+                    _taxa_h = float(n["taxa"])
+                    from db import calcular_juros_compostos as _cjc_h
+
+                    hist_linhas = ""
+                    for _xh in _notas_hist:
+                        _vh  = float(_xh.get("valor", 0))
+                        _dh  = int(_xh.get("dias", 0))
+                        _adth = _xh.get("num_adiantamento","—") or "—"
+                        if _vh > 0 and _dh > 0:
+                            _rh = _cjc_h(_vh, _taxa_h, _dh)
+                            _fath = "{:.6f}".format((1 + _taxa_h/100) ** (_dh/30))
+                            _tph  = "{:.4f}".format(_rh["taxa_periodo"])
+                            _tmh  = "{:.2f}".format(_taxa_h)
+                            hist_linhas += (
+                                "  Nº Adiantamento: " + _adth + "\n"
+                                "  NF: " + str(_xh.get("nf","")) + "\n"
+                                "  Vencimento original: " + str(_xh.get("vencimento","")) + "\n"
+                                "  Pagamento antecipado: " + str(_xh.get("data_antecipado","")) + "\n"
+                                "  Previsão de entrega: " + str(_xh.get("data_entrega","—")) + "\n"
+                                "  Dias antecipados: " + str(_dh) + " dias\n"
+                                "  Valor original: " + brl(_vh) + "\n"
+                                "  Cálculo VP: " + brl(_vh) + " / (1 + " + _tmh + "%)^(" + str(_dh) + "/30)" +
+                                " = " + brl(_vh) + " / " + _fath + " = " + brl(_rh["valor_presente"]) + "\n"
+                                "  Desconto: " + brl(_rh["ganho"]) + " (" + _tph + "% no período / " + _tmh + "% a.m.)\n\n"
+                            )
+                        else:
+                            hist_linhas += (
+                                "  Nº Adiantamento: " + _adth + "\n"
+                                "  NF: " + str(_xh.get("nf","")) + "\n"
+                                "  Valor: " + brl(_vh) + "\n\n"
+                            )
+
+                    hist_tl = ""
+                    for _th in _tl_hist:
+                        try:
+                            from datetime import timezone, timedelta
+                            _dth = datetime.fromisoformat(_th["at"]).astimezone(timezone(timedelta(hours=-3))).strftime("%d/%m/%Y %H:%M")
+                        except:
+                            _dth = _th["at"][:16]
+                        hist_tl += "  " + _dth + " — " + _th["msg"] + "\n"
+
+                    hist_text = (
+                        "HISTORICO DA NEGOCIACAO\n"
+                        "========================================\n"
+                        "Fornecedor: " + n["fornecedor"] + "\n"
+                        "CNPJ: " + str(n.get("cnpj","—")) + "\n"
+                        "Taxa: " + "{:.2f}".format(_taxa_h) + "% a.m. (juros compostos)\n"
+                        "Status: " + STATUS_LABELS.get(n["status"], n["status"]) + "\n"
+                        "Registrado por: " + str(n.get("criado_por","—")) + "\n"
+                        "========================================\n\n"
+                        "DETALHAMENTO POR NOTA\n"
+                        "----------------------------------------\n" +
+                        hist_linhas +
+                        "----------------------------------------\n"
+                        "RESUMO\n"
+                        "  Valor total das notas:   " + brl(n["valor_total"]) + "\n"
+                        "  Valor total pago:        " + brl(n["valor_pago"]) + "\n"
+                        "  Desconto total:          " + brl(n["ganho"]) + "\n\n"
+                        "LINHA DO TEMPO\n"
+                        "----------------------------------------\n" +
+                        hist_tl +
+                        "========================================\n"
+                        "Grupo LLE — Negociacao com Fornecedores\n"
+                    )
+                    st.code(hist_text, language=None)
+                    st.download_button(
+                        "⬇ Baixar histórico (.txt)",
+                        data=hist_text.encode("utf-8"),
+                        file_name="historico_" + n["fornecedor"].replace(" ","_")[:20] + "_" + n["id"] + ".txt",
+                        mime="text/plain",
+                        key="hist_" + n["id"]
+                    )
+
+                # Editar e excluir — apenas Beatriz e Alexandre
+                _is_admin = st.session_state.usuario in ["Beatriz Esteves", "Alexandre Vieira"]
+
+                if _is_admin:
+                    st.divider()
+                    st.caption("✏️ Editar negociação")
+                    with st.expander("Clique para editar", expanded=False):
+                        _notas_edit = n.get("notas", []) if isinstance(n.get("notas"), list) else []
+                        _notas_upd = []
+                        for _xi, _x in enumerate(_notas_edit):
+                            st.markdown(f"**Nota {_xi+1} — NF {_x.get('nf','')}**")
+                            ec1, ec2, ec3 = st.columns(3)
+                            _nf_e  = ec1.text_input("NF",              value=_x.get("nf",""),               key=f"enf_{n['id']}_{_xi}")
+                            _adt_e = ec2.text_input("Nº Adiantamento", value=_x.get("num_adiantamento",""), key=f"eadt_{n['id']}_{_xi}")
+                            _dob_e = ec3.text_input("Desdobramento",   value=_x.get("desdobramento",""),    key=f"edob_{n['id']}_{_xi}")
+                            ec4, ec5 = st.columns(2)
+                            _ven_e = ec4.text_input("Vencimento",          value=_x.get("vencimento",""),       key=f"even_{n['id']}_{_xi}")
+                            _ant_e = ec5.text_input("Pagamento antecipado", value=_x.get("data_antecipado",""), key=f"eant_{n['id']}_{_xi}")
+                            ec6, ec7 = st.columns(2)
+                            _ent_e = ec6.text_input("Previsão entrega", value=_x.get("data_entrega",""),    key=f"eent_{n['id']}_{_xi}")
+                            _val_e = ec7.number_input("Valor (R$)",     value=float(_x.get("valor",0)),     key=f"eval_{n['id']}_{_xi}", min_value=0.0, step=100.0, format="%.2f")
+                            _notas_upd.append({**_x,
+                                "nf": _nf_e, "num_adiantamento": _adt_e,
+                                "desdobramento": _dob_e, "vencimento": _ven_e,
+                                "data_antecipado": _ant_e, "data_entrega": _ent_e,
+                                "valor": _val_e})
+
+                        _taxa_e = st.number_input("Taxa (%)", value=float(n["taxa"]), min_value=0.1, max_value=10.0, step=0.1, format="%.2f", key=f"etx_{n['id']}")
+                        _obs_e  = st.text_area("Observações", value=n.get("obs",""), key=f"eobs_{n['id']}")
+                        _novo_vt = sum(float(x["valor"]) for x in _notas_upd)
+                        from db import calcular_juros_compostos as _cjc3
+                        _novo_ganho = sum(
+                            _cjc3(float(x["valor"]), _taxa_e, int(x.get("dias",0)))["ganho"]
+                            if float(x.get("valor",0)) > 0 and int(x.get("dias",0)) > 0 else 0
+                            for x in _notas_upd
+                        )
+
+                        if st.button("💾 Salvar edição", key=f"esave_{n['id']}", type="primary"):
+                            from datetime import timezone, timedelta
+                            _now_e = datetime.now(timezone(timedelta(hours=-3))).isoformat()
+                            _tl_e  = (n.get("timeline") or []) + [{"at": _now_e, "msg": f"Editada por {st.session_state.usuario}."}]
+                            update_neg(n["id"], {
+                                "notas": _notas_upd, "taxa": _taxa_e, "obs": _obs_e,
+                                "valor_total": _novo_vt, "ganho": _novo_ganho,
+                                "valor_pago": _novo_vt - _novo_ganho, "timeline": _tl_e
+                            })
+                            reload(); st.success("Negociação atualizada!"); st.rerun()
+
+                    if st.button("🗑 Excluir negociação", key=f"del_{n['id']}"):
+                        if st.session_state.get(f"confirm_del_{n['id']}"):
+                            delete_neg(n["id"]); reload(); st.rerun()
+                        else:
+                            st.session_state[f"confirm_del_{n['id']}"] = True
+                            st.warning("⚠️ Clique novamente para confirmar a exclusão.")
+                else:
+                    st.caption("🔒 Edição e exclusão disponíveis apenas para administradores.")
 
 # ══════════════════════════════════════════════════════════════════════════════
 # APROVAÇÕES
